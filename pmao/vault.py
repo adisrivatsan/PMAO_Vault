@@ -68,7 +68,9 @@ def save_initiatives(vault_path: Path, initiatives: List[Initiative]) -> None:
     if target.exists():
         shutil.copy2(target, vault_path / "initiatives.json.bak")
     data = [i.to_dict() for i in initiatives]
-    target.write_text(json.dumps(data, indent=2, default=str))
+    tmp = target.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, indent=2, default=str))
+    tmp.replace(target)
     _cleanup_dead_files(vault_path)
 
 
