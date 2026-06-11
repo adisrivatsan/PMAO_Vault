@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pmao-cli"
+version = "0.1.0"
+description = "Project management assistant orchestrator — CLI-first, LLM-powered initiative tracker"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "pyyaml",
+    "openpyxl>=3.1",
+]
+
+[project.scripts]
+pmao = "pmao.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pmao*"]
+
+[tool.setuptools.package-data]
+pmao = ["skills/*.md", "templates/*"]

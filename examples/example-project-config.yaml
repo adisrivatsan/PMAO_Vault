@@ -1,0 +1,4 @@
+project_name: Acme Corp Q3 Strategy Initiatives
+owner: Jordan Lee
+llm_backend: claude
+llm_timeout_seconds: 120

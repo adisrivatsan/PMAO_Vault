@@ -1,0 +1,15 @@
+# pmao project configuration
+# Copy this file to your vault directory as project-config.yaml and fill in your values.
+
+# Display name for this project
+project_name: My Project
+
+# Primary project manager or coordination owner
+owner: ""
+
+# LLM backend to use: "claude" (Claude Code CLI) or "codex" (OpenAI Codex CLI)
+# Leave null to auto-detect from PATH
+llm_backend: null
+
+# Seconds before LLM calls time out
+llm_timeout_seconds: 120

@@ -1,0 +1,3 @@
+id,name,coordination_owner,responsible_owner,priority
+init-001,Initiative Name,Jane Smith,John Doe,high
+init-002,Another Initiative,,,medium
