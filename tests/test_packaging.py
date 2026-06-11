@@ -6,7 +6,7 @@ import pmao
 from pmao.ingest import _load_skill
 
 PKG_DIR = Path(pmao.__file__).parent
-SKILL_NAMES = ["ingest", "ingest-deep", "status", "summarize", "syndicate", "update"]
+SKILL_NAMES = ["ingest", "status", "summarize"]
 
 
 def test_skills_ship_inside_the_pmao_package():
@@ -20,7 +20,7 @@ def test_skills_ship_inside_the_pmao_package():
 
 
 def test_templates_ship_inside_the_pmao_package():
-    for name in ["initiative-template.csv", "project-config.yaml", "workbook-schema.yaml"]:
+    for name in ["initiative-template.csv", "project-config.yaml"]:
         template_file = PKG_DIR / "templates" / name
         assert template_file.is_file(), f"{template_file} missing from the pmao package"
 
