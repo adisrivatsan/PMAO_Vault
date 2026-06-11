@@ -8,11 +8,10 @@ from pmao.models import Initiative
 from pmao.vault import init_vault, load_initiatives, save_initiatives, VAULT_FILES
 
 
-def _make_initiative(id_="init-001", name="Customer Data Platform"):
-    return Initiative(
-        id=id_, name=name, status="not_started",
-        created=date(2026, 6, 8), last_touched=date(2026, 6, 8)
-    )
+def _make_initiative(id_="init-001", name="Customer Data Platform", **kwargs):
+    defaults = dict(status="not_started", last_touched=date(2026, 6, 8))
+    defaults.update(kwargs)
+    return Initiative(id=id_, name=name, **defaults)
 
 
 def test_init_vault_creates_expected_files():

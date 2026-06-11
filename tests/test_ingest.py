@@ -12,7 +12,7 @@ from pmao.vault import init_vault, save_initiatives, load_initiatives
 def _make_initiative(id_="init-001", name="Customer Data Platform", status="not_started"):
     return Initiative(
         id=id_, name=name, status=status,
-        created=date(2026, 6, 8), last_touched=date(2026, 6, 8)
+        last_touched=date(2026, 6, 8),
     )
 
 

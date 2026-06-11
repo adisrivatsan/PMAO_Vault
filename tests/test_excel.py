@@ -12,7 +12,6 @@ def _make_initiative(id_="init-001", **kwargs):
     defaults = dict(
         name="Customer Data Platform",
         status="not_started",
-        created=date(2026, 6, 8),
         last_touched=date(2026, 6, 8),
     )
     defaults.update(kwargs)
