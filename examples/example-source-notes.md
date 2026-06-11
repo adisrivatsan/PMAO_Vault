@@ -1,24 +1,14 @@
-# Strategy Sync — June 8, 2026
+# Example Source Notes
 
-## Attendees
-Jordan Lee, Sam Rivera, Alex Chen
+This is a sample notes file you can pass to `pmao ingest`.
 
-## Customer Data Platform (init-001)
+## Alpha Build — Status Update (2026-06-11)
 
-Sam confirmed the data schema analysis is complete. The team reviewed three vendor options and narrowed to two finalists. Alex will schedule a vendor demo for next week.
+Alex Jordan confirmed that the data model design is complete. Next steps are to schedule
+the stakeholder review by June 15 and confirm the budget with Sam Lee.
 
-Outstanding question: Do we need sign-off from Legal before the vendor demo, or can we proceed informally?
+Decision: The phased rollout approach was approved by the leadership team. Alex Jordan
+owns the implementation schedule.
 
-Action: Alex Chen to schedule vendor demos by June 12.
-
-## Market Expansion (init-002)
-
-Jordan shared the market sizing model — initial TAM estimate is $2.4B. The executive presentation is drafted but needs a second pass on the competitive landscape section. Sam will own the revision.
-
-No blockers at this time. Presentation due June 20.
-
-Action: Sam Rivera to revise competitive landscape section by June 15.
-
-## Platform Reliability (init-003)
-
-No update this week — initiative owner on vacation. Will pick up at next sync.
+Open hypothesis: Reducing onboarding friction may improve 30-day retention by 20%.
+Alex to validate via cohort analysis.
