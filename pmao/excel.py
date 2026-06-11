@@ -18,18 +18,13 @@ _TRUNCATION_MARKER = " … [truncated]"
 INITIATIVE_COLS = [
     "initiative_id",
     "initiative",
-    "coordination_owner",
-    "responsible_owner",
+    "owner",
     "status",
     "priority",
     "current_state",
-    "coordination_next_steps",
-    "outstanding_questions",
-    "outstanding_meetings",
+    "next_steps",
     "last_touch_comment",
-    "last_touch_timestamp",
-    "syndication_notes",
-    "materials_link",
+    "last_touched",
     "notes",
 ]
 
@@ -134,6 +129,9 @@ def create_workbook(
     signals: Optional[list] = None,
     meetings: Optional[list] = None,
     staged: Optional[list] = None,
+    actions: Optional[list] = None,
+    decisions: Optional[list] = None,
+    **_kwargs,
 ) -> None:
     wb = Workbook()
 
@@ -146,18 +144,13 @@ def create_workbook(
         record = {
             "initiative_id": init.id,
             "initiative": init.name,
-            "coordination_owner": init.coordination_owner or "",
-            "responsible_owner": init.responsible_owner or "",
+            "owner": init.owner or "",
             "status": init.status,
             "priority": init.priority or "",
             "current_state": init.current_state or "",
-            "coordination_next_steps": init.coordination_next_steps or "",
-            "outstanding_questions": init.outstanding_questions or "",
-            "outstanding_meetings": init.outstanding_meetings or "",
+            "next_steps": init.next_steps or "",
             "last_touch_comment": init.last_touch_comment or "",
-            "last_touch_timestamp": init.last_touch_timestamp.isoformat() if init.last_touch_timestamp else "",
-            "syndication_notes": init.syndication_notes or "",
-            "materials_link": init.materials_link or "",
+            "last_touched": init.last_touched.isoformat() if init.last_touched else "",
             "notes": init.notes or "",
         }
         _write_data_row(ws_init, row_num, INITIATIVE_COLS, record)
@@ -189,7 +182,7 @@ def create_workbook(
         _write_data_row(ws_log, row_num, NEXT_STEPS_LOG_COLS, {
             "initiative_id": init.id,
             "initiative": init.name,
-            "coordination_next_steps": init.coordination_next_steps or "",
+            "coordination_next_steps": init.next_steps or "",
             "date_captured": init.last_touched.isoformat(),
         })
     ws_log.column_dimensions["A"].width = 12
@@ -205,7 +198,7 @@ def create_workbook(
         _write_data_row(ws_lt, row_num, LAST_TOUCH_LOG_COLS, {
             "initiative_id": init.id,
             "initiative": init.name,
-            "last_touch_timestamp": init.last_touch_timestamp.isoformat() if init.last_touch_timestamp else "",
+            "last_touch_timestamp": init.last_touched.isoformat() if init.last_touched else "",
             "last_touch_comment": init.last_touch_comment or "",
         })
     ws_lt.column_dimensions["A"].width = 12
@@ -310,15 +303,7 @@ def create_workbook(
         record["functions"] = ", ".join(m.get("functions") or [])
         record["row_source"] = "meetings.json"
         meeting_rows.append(record)
-    for init in initiatives:
-        if init.outstanding_meetings:
-            meeting_rows.append({
-                "id": "", "initiative": init.name,
-                "purpose": init.outstanding_meetings,
-                "convener": "", "attendees": "", "functions": "",
-                "target_timing": "", "cadence": "", "status": "open",
-                "row_source": "initiative-field", "created": "",
-            })
+    # (outstanding_meetings field removed from slim model; no inline meeting rows here)
     for row_num, record in enumerate(meeting_rows, start=2):
         _write_data_row(ws_m, row_num, MEETING_COLS, record)
     ws_m.column_dimensions["B"].width = 28

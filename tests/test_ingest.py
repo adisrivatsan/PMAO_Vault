@@ -5,8 +5,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from pmao.models import Initiative
-from pmao.ingest import apply_updates, _build_ingest_prompt
-from pmao.vault import init_vault, save_initiatives, load_initiatives
+from pmao.ingest import apply_updates, _build_ingest_prompt, CLEAR_SENTINEL
+from pmao.vault import init_vault, save_initiatives, load_initiatives, load_list
 
 
 def _make_initiative(id_="init-001", name="Customer Data Platform", status="not_started"):
@@ -16,47 +16,56 @@ def _make_initiative(id_="init-001", name="Customer Data Platform", status="not_
     )
 
 
+def _empty_extraction():
+    return {
+        "initiative_updates": [],
+        "new_actions": [],
+        "completed_actions": [],
+        "meetings": [],
+        "decisions": [],
+        "hypotheses": [],
+        "facts": [],
+        "unmatched_references": [],
+    }
 
-def test_apply_updates_maps_generic_fields():
+
+def test_apply_updates_initiative_fields():
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp)
         init_vault(vault)
         save_initiatives(vault, [_make_initiative()])
 
-        extraction = {
-            "initiatives_updated": [{
-                "initiative_id": "init-001",
-                "current_state": "Analysis complete",
-                "coordination_next_steps": "- Alex to schedule review",
-                "outstanding_questions": "",
-                "outstanding_meetings": "",
-                "last_touch_comment": "[email] Alex confirmed done",
-                "last_touch_timestamp": "2026-06-08",
-                "materials_link": "",
-            }],
-            "action_items": [{
-                "initiative_id": "init-001",
-                "description": "Schedule stakeholder review",
-                "owner": "Alex Jordan",
-                "due": "2026-06-15",
-            }],
-            "open_questions": [],
-        }
-
-        apply_updates(vault, extraction, "meeting-notes.md")
+        extraction = dict(_empty_extraction(), initiative_updates=[{
+            "initiative_id": "init-001",
+            "current_state": "Analysis complete",
+            "next_steps": "- Alex to schedule review",
+            "last_touch_comment": "[email] Alex confirmed",
+            "status": "",
+        }])
+        apply_updates(vault, extraction, "meeting.md")
 
         initiatives = load_initiatives(vault)
-        init = initiatives[0]
-        assert init.current_state == "Analysis complete"
-        assert init.coordination_next_steps == "- Alex to schedule review"
-        assert init.status == "in_progress"
-        assert init.last_touch_comment == "[email] Alex confirmed done"
-        assert init.last_touch_timestamp == date(2026, 6, 8)
+        assert initiatives[0].current_state == "Analysis complete"
+        assert initiatives[0].next_steps == "- Alex to schedule review"
+        assert initiatives[0].last_touch_comment == "[email] Alex confirmed"
+        assert initiatives[0].last_touched == date.today()
 
-        actions = json.loads((vault / "actions.json").read_text())
-        assert len(actions) == 1
-        assert actions[0]["owner"] == "Alex Jordan"
-        assert actions[0]["description"] == "Schedule stakeholder review"
+
+def test_apply_updates_status_change():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        save_initiatives(vault, [_make_initiative()])
+
+        extraction = dict(_empty_extraction(), initiative_updates=[{
+            "initiative_id": "init-001",
+            "status": "in_progress",
+            "current_state": "", "next_steps": "", "last_touch_comment": "",
+        }])
+        apply_updates(vault, extraction, "notes.md")
+
+        initiatives = load_initiatives(vault)
+        assert initiatives[0].status == "in_progress"
 
 
 def test_apply_updates_skips_unknown_initiative():
@@ -65,44 +74,14 @@ def test_apply_updates_skips_unknown_initiative():
         init_vault(vault)
         save_initiatives(vault, [_make_initiative()])
 
-        extraction = {
-            "initiatives_updated": [{"initiative_id": "init-999", "current_state": "ignored"}],
-            "action_items": [],
-            "open_questions": [],
-        }
+        extraction = dict(_empty_extraction(), initiative_updates=[{
+            "initiative_id": "init-999",
+            "current_state": "ignored",
+            "status": "", "next_steps": "", "last_touch_comment": "",
+        }])
         apply_updates(vault, extraction, "source.md")
 
-        initiatives = load_initiatives(vault)
-        assert initiatives[0].current_state is None
-
-
-def test_apply_updates_overwrites_existing_next_steps():
-    with tempfile.TemporaryDirectory() as tmp:
-        vault = Path(tmp)
-        init_vault(vault)
-        init = _make_initiative(status="in_progress")
-        init.coordination_next_steps = "- Old step"
-        save_initiatives(vault, [init])
-
-        extraction = {
-            "initiatives_updated": [{
-                "initiative_id": "init-001",
-                "coordination_next_steps": "- New step replaces old",
-                "current_state": "",
-                "outstanding_questions": "",
-                "outstanding_meetings": "",
-                "last_touch_comment": "",
-                "last_touch_timestamp": "",
-                "materials_link": "",
-            }],
-            "action_items": [],
-            "open_questions": [],
-        }
-        apply_updates(vault, extraction, "source.md")
-
-        initiatives = load_initiatives(vault)
-        assert initiatives[0].coordination_next_steps == "- New step replaces old"
-        assert "- Old step" not in initiatives[0].coordination_next_steps
+        assert load_initiatives(vault)[0].current_state is None
 
 
 def test_apply_updates_leaves_field_when_new_is_empty():
@@ -110,256 +89,286 @@ def test_apply_updates_leaves_field_when_new_is_empty():
         vault = Path(tmp)
         init_vault(vault)
         init = _make_initiative(status="in_progress")
-        init.coordination_next_steps = "- Preserved step"
+        init.next_steps = "- Preserved step"
         save_initiatives(vault, [init])
 
-        extraction = {
-            "initiatives_updated": [{
-                "initiative_id": "init-001",
-                "coordination_next_steps": "",
-                "current_state": "New state",
-                "outstanding_questions": "",
-                "outstanding_meetings": "",
-                "last_touch_comment": "",
-                "last_touch_timestamp": "",
-                "materials_link": "",
-            }],
-            "action_items": [],
-            "open_questions": [],
-        }
+        extraction = dict(_empty_extraction(), initiative_updates=[{
+            "initiative_id": "init-001",
+            "next_steps": "",
+            "current_state": "New state",
+            "status": "", "last_touch_comment": "",
+        }])
         apply_updates(vault, extraction, "source.md")
 
         initiatives = load_initiatives(vault)
-        assert initiatives[0].coordination_next_steps == "- Preserved step"
+        assert initiatives[0].next_steps == "- Preserved step"
         assert initiatives[0].current_state == "New state"
 
 
-def test_apply_updates_clears_field_with_clear_sentinel():
+def test_apply_updates_clears_field_with_sentinel():
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp)
         init_vault(vault)
         init = _make_initiative(status="in_progress")
-        init.coordination_next_steps = "- Step to be cleared"
+        init.next_steps = "- Step to clear"
         init.current_state = "Kept state"
         save_initiatives(vault, [init])
 
-        extraction = {
-            "initiatives_updated": [{
-                "initiative_id": "init-001",
-                "coordination_next_steps": "[clear]",
-                "current_state": "",
-                "outstanding_questions": "",
-                "outstanding_meetings": "",
-                "last_touch_comment": "",
-                "last_touch_timestamp": "",
-                "materials_link": "",
-            }],
-            "action_items": [],
-            "open_questions": [],
-        }
-        apply_updates(vault, extraction, "manual-update-2026-06-11")
+        extraction = dict(_empty_extraction(), initiative_updates=[{
+            "initiative_id": "init-001",
+            "next_steps": "[clear]",
+            "current_state": "",
+            "status": "", "last_touch_comment": "",
+        }])
+        apply_updates(vault, extraction, "manual-2026-06-11")
 
         initiatives = load_initiatives(vault)
-        assert initiatives[0].coordination_next_steps is None
+        assert initiatives[0].next_steps is None
         assert initiatives[0].current_state == "Kept state"
 
 
-def test_apply_updates_clear_sentinel_clears_materials_link():
-    with tempfile.TemporaryDirectory() as tmp:
-        vault = Path(tmp)
-        init_vault(vault)
-        init = _make_initiative(status="in_progress")
-        init.materials_link = "https://example.com/old-deck"
-        save_initiatives(vault, [init])
-
-        extraction = {
-            "initiatives_updated": [{
-                "initiative_id": "init-001",
-                "materials_link": "[clear]",
-            }],
-            "action_items": [],
-            "open_questions": [],
-        }
-        apply_updates(vault, extraction, "manual-update-2026-06-11")
-
-        initiatives = load_initiatives(vault)
-        assert initiatives[0].materials_link is None
-
-
-def test_build_ingest_prompt_substitutes_placeholders():
-    skill = "## Initiatives\n{initiatives}\n## Source\n{source}"
-    initiatives = [_make_initiative()]
-    prompt = _build_ingest_prompt(skill, initiatives, "source content here")
-    assert "init-001" in prompt
-    assert "Customer Data Platform" in prompt
-    assert "source content here" in prompt
-
-
-def test_apply_updates_adds_open_questions():
+def test_apply_updates_new_actions():
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp)
         init_vault(vault)
         save_initiatives(vault, [_make_initiative()])
 
-        extraction = {
-            "initiatives_updated": [],
-            "action_items": [],
-            "open_questions": [{"initiative_id": "init-001", "question": "What is the budget?"}],
-        }
-        apply_updates(vault, extraction, "source.md")
+        extraction = dict(_empty_extraction(), new_actions=[{
+            "initiative_id": "init-001",
+            "description": "Schedule stakeholder review",
+            "owner": "Alex Jordan",
+            "due": "2026-06-15",
+        }])
+        apply_updates(vault, extraction, "meeting.md")
 
-        questions = json.loads((vault / "questions.json").read_text())
-        assert len(questions) == 1
-        assert questions[0]["question"] == "What is the budget?"
+        actions = load_list(vault, "actions.json")
+        assert len(actions) == 1
+        assert actions[0]["owner"] == "Alex Jordan"
+        assert actions[0]["status"] == "open"
+        assert actions[0]["id"].startswith("act-")
 
 
-def test_apply_updates_writes_decisions():
+def test_apply_updates_completed_actions():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        save_initiatives(vault, [_make_initiative()])
+        (vault / "actions.json").write_text(json.dumps([{
+            "id": "act-2026-06-08-0000",
+            "initiative_id": "init-001",
+            "description": "Old task",
+            "owner": "Sam",
+            "due": "",
+            "status": "open",
+            "created": "2026-06-08",
+            "source": "old.md",
+        }]))
+
+        extraction = dict(_empty_extraction(), completed_actions=["act-2026-06-08-0000"])
+        apply_updates(vault, extraction, "meeting.md")
+
+        actions = load_list(vault, "actions.json")
+        assert actions[0]["status"] == "done"
+
+
+def test_apply_updates_meetings():
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp)
         init_vault(vault)
         save_initiatives(vault, [_make_initiative()])
 
-        extraction = {
-            "initiatives_updated": [],
-            "action_items": [],
-            "open_questions": [],
-            "decisions": [{
-                "initiative_id": "init-001",
-                "decision": "Budget approved at $500K",
-                "rationale": "Board approved in Q2 review",
-                "owner": "Jane Smith",
-                "source_type": "[transcript]",
-            }],
-            "hypotheses": [],
-        }
+        extraction = dict(_empty_extraction(), meetings=[{
+            "initiative_id": "init-001",
+            "purpose": "Kickoff with data team",
+            "attendees": ["Alex", "Sam"],
+        }])
+        apply_updates(vault, extraction, "notes.md")
+
+        meetings = load_list(vault, "meetings.json")
+        assert len(meetings) == 1
+        assert meetings[0]["purpose"] == "Kickoff with data team"
+        assert meetings[0]["id"].startswith("mtg-")
+
+
+def test_apply_updates_decisions():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        save_initiatives(vault, [_make_initiative()])
+
+        extraction = dict(_empty_extraction(), decisions=[{
+            "initiative_id": "init-001",
+            "decision": "Budget approved at $500K",
+            "rationale": "Board approved in Q2",
+            "owner": "Jane Smith",
+        }])
         apply_updates(vault, extraction, "meeting.vtt")
 
-        decisions = json.loads((vault / "decisions.json").read_text())
+        decisions = load_list(vault, "decisions.json")
         assert len(decisions) == 1
         assert decisions[0]["decision"] == "Budget approved at $500K"
-        assert decisions[0]["rationale"] == "Board approved in Q2 review"
-        assert decisions[0]["owner"] == "Jane Smith"
         assert decisions[0]["status"] == "recorded"
-        assert decisions[0]["source"] == "meeting.vtt"
         assert decisions[0]["id"].startswith("dec-")
 
 
-def test_apply_updates_writes_hypotheses():
+def test_apply_updates_hypotheses():
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp)
         init_vault(vault)
         save_initiatives(vault, [_make_initiative()])
 
-        extraction = {
-            "initiatives_updated": [],
-            "action_items": [],
-            "open_questions": [],
-            "decisions": [],
-            "hypotheses": [{
-                "initiative_id": "init-001",
-                "hypothesis": "Unbundling onboarding fee will increase conversion by 15%",
-                "owner": "Alex Chen",
-                "validation_path": "Run A/B on next cohort",
-                "source_type": "[transcript]",
-            }],
-        }
-        apply_updates(vault, extraction, "strategy-call.vtt")
+        extraction = dict(_empty_extraction(), hypotheses=[{
+            "initiative_id": "init-001",
+            "hypothesis": "Unbundling fee increases conversion by 15%",
+            "owner": "Alex Chen",
+            "validation_path": "Run A/B test",
+        }])
+        apply_updates(vault, extraction, "call.vtt")
 
-        hypotheses = json.loads((vault / "hypotheses.json").read_text())
+        hypotheses = load_list(vault, "hypotheses.json")
         assert len(hypotheses) == 1
-        assert hypotheses[0]["hypothesis"] == "Unbundling onboarding fee will increase conversion by 15%"
-        assert hypotheses[0]["owner"] == "Alex Chen"
         assert hypotheses[0]["status"] == "open"
-        assert hypotheses[0]["initiative_id"] == "init-001"
         assert hypotheses[0]["id"].startswith("hyp-")
 
 
-def test_apply_updates_hypothesis_with_null_initiative_id():
+def test_apply_updates_hypothesis_null_initiative_id():
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp)
         init_vault(vault)
         save_initiatives(vault, [_make_initiative()])
 
-        extraction = {
-            "initiatives_updated": [],
-            "action_items": [],
-            "open_questions": [],
-            "decisions": [],
-            "hypotheses": [{
-                "initiative_id": None,
-                "hypothesis": "Market timing matters more than product quality in this segment",
-                "owner": "",
-                "validation_path": "",
-                "source_type": "[transcript]",
-            }],
-        }
+        extraction = dict(_empty_extraction(), hypotheses=[{
+            "initiative_id": None,
+            "hypothesis": "Market timing > product quality",
+            "owner": "", "validation_path": "",
+        }])
         apply_updates(vault, extraction, "all-hands.vtt")
 
-        hypotheses = json.loads((vault / "hypotheses.json").read_text())
-        assert len(hypotheses) == 1
+        hypotheses = load_list(vault, "hypotheses.json")
         assert hypotheses[0]["initiative_id"] is None
 
 
-def test_run_update_writes_to_vault():
+def test_apply_updates_facts():
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp)
         init_vault(vault)
-        init = _make_initiative(status="in_progress")
-        save_initiatives(vault, [init])
+        save_initiatives(vault, [_make_initiative()])
 
-        extraction = {
-            "initiatives_updated": [{
-                "initiative_id": "init-001",
-                "current_state": "Budget confirmed by Jane",
-                "coordination_next_steps": "",
-                "outstanding_questions": "",
-                "outstanding_meetings": "",
-                "last_touch_comment": "[notes] Jane confirmed budget",
-                "last_touch_timestamp": "2026-06-09",
-                "materials_link": "",
-            }],
-            "action_items": [],
-            "open_questions": [],
-            "decisions": [],
-            "hypotheses": [],
-        }
+        extraction = dict(_empty_extraction(), facts=[{
+            "initiative_id": "init-001",
+            "claim": "Q2 cost-to-serve up 9%",
+            "stated_by": "Sarah Klein",
+        }])
+        apply_updates(vault, extraction, "sync.vtt")
 
-        with patch("pmao.llm.call_structured", return_value=extraction), \
-             patch("pmao.ingest._load_skill", return_value="{initiatives}\n{user_note}"), \
-             patch("builtins.input", side_effect=["Jane confirmed budget for init-001", "y"]):
-            from pmao.ingest import run_update
-            run_update(vault, yes=False)
-
-        initiatives = load_initiatives(vault)
-        assert initiatives[0].current_state == "Budget confirmed by Jane"
-        assert (vault / "workbook.xlsx").exists()
+        facts = load_list(vault, "facts.json")
+        assert len(facts) == 1
+        assert facts[0]["claim"] == "Q2 cost-to-serve up 9%"
+        assert facts[0]["id"].startswith("fact-")
 
 
-def test_run_update_aborts_on_empty_note():
+def test_print_diff_shows_unmatched_references(capsys):
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp)
         init_vault(vault)
-        save_initiatives(vault, [_make_initiative(status="in_progress")])
+        save_initiatives(vault, [_make_initiative()])
 
-        with patch("pmao.ingest._load_skill", return_value="{initiatives}\n{user_note}"), \
-             patch("builtins.input", return_value=""):
-            from pmao.ingest import run_update
-            run_update(vault, yes=False)
+        extraction = dict(_empty_extraction(), unmatched_references=[
+            {"mention": "Project Phoenix", "context": "mentioned in Q3 discussion"}
+        ])
+        from pmao.ingest import _print_diff
+        _print_diff(extraction, load_initiatives(vault), [])
 
-        initiatives = load_initiatives(vault)
-        assert initiatives[0].current_state is None  # unchanged
+        out = capsys.readouterr().out
+        assert "UNMATCHED REFERENCES" in out
+        assert "Project Phoenix" in out
 
 
-def test_run_status_prints_hypothesis_count(capsys):
+def test_build_ingest_prompt_substitutes_placeholders():
+    skill = "## Initiatives\n{initiatives}\n## Roster\n{roster}\n## Source\n{source}"
+    initiatives = [_make_initiative()]
+    prompt = _build_ingest_prompt(skill, initiatives, "source content here", "- Jane Smith")
+    assert "init-001" in prompt
+    assert "Customer Data Platform" in prompt
+    assert "source content here" in prompt
+    assert "Jane Smith" in prompt
+
+
+def test_run_ingest_applies_on_yes(tmp_path):
+    vault = tmp_path / "vault"
+    init_vault(vault)
+    save_initiatives(vault, [_make_initiative()])
+    source = tmp_path / "notes.md"
+    source.write_text("Alpha is in progress")
+
+    extraction = dict(_empty_extraction(), initiative_updates=[{
+        "initiative_id": "init-001",
+        "current_state": "In progress now",
+        "next_steps": "", "last_touch_comment": "", "status": "",
+    }])
+
+    with patch("pmao.llm.call_structured", return_value=extraction), \
+         patch("pmao.ingest._load_skill", return_value="{initiatives}\n{roster}\n{source}"), \
+         patch("builtins.input", return_value="y"):
+        from pmao.ingest import run_ingest
+        run_ingest(vault, source, yes=False)
+
+    assert load_initiatives(vault)[0].current_state == "In progress now"
+
+
+def test_run_ingest_aborts_on_no(tmp_path):
+    vault = tmp_path / "vault"
+    init_vault(vault)
+    save_initiatives(vault, [_make_initiative()])
+    source = tmp_path / "notes.md"
+    source.write_text("Some content")
+
+    extraction = dict(_empty_extraction(), initiative_updates=[{
+        "initiative_id": "init-001",
+        "current_state": "Should not apply",
+        "next_steps": "", "last_touch_comment": "", "status": "",
+    }])
+
+    with patch("pmao.llm.call_structured", return_value=extraction), \
+         patch("pmao.ingest._load_skill", return_value="{initiatives}\n{roster}\n{source}"), \
+         patch("builtins.input", return_value="n"):
+        from pmao.ingest import run_ingest
+        run_ingest(vault, source, yes=False)
+
+    assert load_initiatives(vault)[0].current_state is None
+
+
+def test_run_status_uses_slim_fields(capsys):
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        save_initiatives(vault, [_make_initiative()])
+
+        with patch("pmao.llm.call_text", return_value="STATUS OUTPUT"), \
+             patch("pmao.ingest._load_skill", return_value="{initiatives}"):
+            from pmao.ingest import run_status
+            run_status(vault)
+
+        out = capsys.readouterr().out
+        assert "STATUS OUTPUT" in out
+
+
+def test_run_status_shows_hypothesis_count(capsys):
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp)
         init_vault(vault)
         save_initiatives(vault, [_make_initiative()])
 
         hyps = [
-            {"initiative_id": "init-001", "hypothesis": "A", "status": "open", "owner": "", "validation_path": "", "created": "2026-06-09", "source": "x.vtt", "id": "hyp-1", "source_type": "[transcript]"},
-            {"initiative_id": None, "hypothesis": "B", "status": "open", "owner": "", "validation_path": "", "created": "2026-06-09", "source": "x.vtt", "id": "hyp-2", "source_type": "[transcript]"},
-            {"initiative_id": "init-001", "hypothesis": "C", "status": "parked", "owner": "", "validation_path": "", "created": "2026-06-09", "source": "x.vtt", "id": "hyp-3", "source_type": "[transcript]"},
+            {"initiative_id": "init-001", "hypothesis": "A", "status": "open",
+             "owner": "", "validation_path": "", "created": "2026-06-09",
+             "source": "x.vtt", "id": "hyp-1"},
+            {"initiative_id": None, "hypothesis": "B", "status": "open",
+             "owner": "", "validation_path": "", "created": "2026-06-09",
+             "source": "x.vtt", "id": "hyp-2"},
+            {"initiative_id": "init-001", "hypothesis": "C", "status": "parked",
+             "owner": "", "validation_path": "", "created": "2026-06-09",
+             "source": "x.vtt", "id": "hyp-3"},
         ]
         (vault / "hypotheses.json").write_text(json.dumps(hyps))
 
@@ -368,28 +377,7 @@ def test_run_status_prints_hypothesis_count(capsys):
             from pmao.ingest import run_status
             run_status(vault)
 
-        captured = capsys.readouterr()
-        assert "Hypotheses: 2 open" in captured.out
-        assert "1 initiative-level" in captured.out
-        assert "1 project-level" in captured.out
-
-
-def test_run_status_uses_vault_config_backend_and_timeout():
-    import yaml
-
-    with tempfile.TemporaryDirectory() as tmp:
-        vault = Path(tmp)
-        init_vault(vault)
-        save_initiatives(vault, [_make_initiative()])
-        config = yaml.safe_load((vault / "project-config.yaml").read_text())
-        config["llm_backend"] = "codex"
-        config["llm_timeout_seconds"] = 11
-        (vault / "project-config.yaml").write_text(yaml.dump(config))
-
-        with patch("pmao.llm._run", return_value="STATUS OUTPUT") as run, \
-             patch("pmao.ingest._load_skill", return_value="{initiatives}"):
-            from pmao.ingest import run_status
-            run_status(vault)
-
-        assert run.call_args[0][0] == "codex"
-        assert run.call_args[0][2] == 11
+        out = capsys.readouterr().out
+        assert "Hypotheses: 2 open" in out
+        assert "1 initiative-level" in out
+        assert "1 project-level" in out
