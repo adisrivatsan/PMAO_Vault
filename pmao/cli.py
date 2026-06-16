@@ -43,6 +43,18 @@ def cmd_summarize(args) -> None:
     run_summarize(vault_path=Path(args.vault), config_override=args.backend)
 
 
+def cmd_lint(args) -> None:
+    if args.stale_days < 1:
+        print("Error: --stale-days must be >= 1", file=sys.stderr)
+        sys.exit(1)
+    from pmao.ingest import run_lint
+    run_lint(
+        vault_path=Path(args.vault),
+        stale_days=args.stale_days,
+        config_override=args.backend,
+    )
+
+
 def cmd_export(args) -> None:
     from pmao.vault import load_initiatives, refresh_workbook
     vault = Path(args.vault)
@@ -85,6 +97,13 @@ def main() -> None:
     p_summarize.add_argument("vault", help="Path to vault directory")
     p_summarize.add_argument("--backend", choices=["claude", "codex"], default=None)
     p_summarize.set_defaults(func=cmd_summarize)
+
+    p_lint = sub.add_parser("lint", help="Health check — find stale, incomplete, and contradictory state")
+    p_lint.add_argument("vault", help="Path to vault directory")
+    p_lint.add_argument("--stale-days", type=int, default=30, metavar="N",
+                        help="Flag initiatives not touched in N days (default: 30)")
+    p_lint.add_argument("--backend", choices=["claude", "codex"], default=None)
+    p_lint.set_defaults(func=cmd_lint)
 
     p_export = sub.add_parser("export", help="Regenerate workbook.xlsx from project state")
     p_export.add_argument("vault", help="Path to vault directory")
