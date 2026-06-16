@@ -17,6 +17,79 @@ def _load_skill(skill_name: str) -> str:
     return skill_file.read_text(encoding="utf-8")
 
 
+def _compute_lint_flags(
+    initiatives: List[Initiative],
+    actions: list,
+    stale_days: int = 30,
+) -> dict:
+    today = date.today()
+    stale = []
+    for i in initiatives:
+        delta = (today - i.last_touched).days
+        if delta > stale_days:
+            stale.append({"id": i.id, "name": i.name, "days_since_touch": delta})
+
+    incomplete = []
+    for i in initiatives:
+        missing = [f for f in ("owner", "current_state", "next_steps") if not getattr(i, f)]
+        if missing:
+            incomplete.append({"id": i.id, "name": i.name, "missing_fields": missing})
+
+    overdue_actions = []
+    for a in actions:
+        if a.get("status") != "open":
+            continue
+        due_str = a.get("due", "")
+        if not due_str:
+            continue
+        try:
+            due_date = date.fromisoformat(due_str)
+        except ValueError:
+            continue
+        delta = (today - due_date).days
+        if delta > 0:
+            overdue_actions.append({
+                "id": a["id"],
+                "description": a.get("description", ""),
+                "owner": a.get("owner", ""),
+                "days_overdue": delta,
+            })
+
+    return {"stale": stale, "incomplete": incomplete, "overdue_actions": overdue_actions}
+
+
+def _format_pre_flags(flags: dict, stale_days: int) -> str:
+    lines = []
+
+    lines.append(f"STALE INITIATIVES (>{stale_days} days since last touch):")
+    if flags["stale"]:
+        for s in flags["stale"]:
+            lines.append(f"  {s['id']}: {s['name']} — {s['days_since_touch']} days ago")
+    else:
+        lines.append("  None")
+
+    lines.append("")
+    lines.append("INCOMPLETE INITIATIVES (missing required fields):")
+    if flags["incomplete"]:
+        for inc in flags["incomplete"]:
+            missing_str = ", ".join(inc["missing_fields"])
+            lines.append(f"  {inc['id']}: {inc['name']} — missing: {missing_str}")
+    else:
+        lines.append("  None")
+
+    lines.append("")
+    lines.append("OVERDUE OPEN ACTIONS:")
+    if flags["overdue_actions"]:
+        for a in flags["overdue_actions"]:
+            lines.append(
+                f"  {a['id']}: \"{a['description']}\" — {a['days_overdue']} days overdue"
+            )
+    else:
+        lines.append("  None")
+
+    return "\n".join(lines)
+
+
 def _build_ingest_prompt(
     skill: str,
     initiatives: List[Initiative],
@@ -297,4 +370,39 @@ def run_summarize(vault_path: Path, config_override: str = None) -> None:
         default=str,
     )
     prompt = skill.replace("{project_state}", state)
+    print(call_text(prompt, config_override=config_override, vault_path=vault_path))
+
+
+def run_lint(
+    vault_path: Path,
+    stale_days: int = 30,
+    config_override: str = None,
+) -> None:
+    from pmao.llm import call_text
+
+    initiatives = load_initiatives(vault_path)
+    if not initiatives:
+        print("Nothing to lint — vault has no initiatives.")
+        return
+
+    actions = load_list(vault_path, "actions.json")
+    decisions = load_list(vault_path, "decisions.json")
+    hypotheses = load_list(vault_path, "hypotheses.json")
+    facts = load_list(vault_path, "facts.json")
+
+    flags = _compute_lint_flags(initiatives, actions, stale_days=stale_days)
+    pre_flags = _format_pre_flags(flags, stale_days)
+
+    skill = _load_skill("lint")
+    init_block = json.dumps([i.to_dict() for i in initiatives], indent=2, default=str)
+    prompt = (
+        skill
+        .replace("{pre_flags}", pre_flags)
+        .replace("{initiatives}", init_block)
+        .replace("{actions}", json.dumps(actions, indent=2, default=str))
+        .replace("{decisions}", json.dumps(decisions, indent=2, default=str))
+        .replace("{hypotheses}", json.dumps(hypotheses, indent=2, default=str))
+        .replace("{facts}", json.dumps(facts, indent=2, default=str))
+    )
+
     print(call_text(prompt, config_override=config_override, vault_path=vault_path))
