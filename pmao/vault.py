@@ -8,6 +8,7 @@ from pmao.models import Initiative
 
 VAULT_FILES = [
     "project-config.yaml",
+    "roster.yaml",
     "initiatives.json",
     "actions.json",
     "meetings.json",
@@ -53,6 +54,22 @@ def init_vault(vault_path: Path, project_name: str = "My Project", owner: str = 
     for fname in ("initiatives.json", "actions.json", "meetings.json",
                   "decisions.json", "hypotheses.json", "facts.json"):
         (vault_path / fname).write_text("[]")
+
+    _ROSTER_TEMPLATE = """\
+# roster.yaml — people involved in this project
+# Used by ingest to canonicalize owner names from transcripts.
+#
+# people:
+#   - name: Jane Smith
+#     aliases: [Jane, J. Smith]
+#     role: Program Manager
+#   - name: Bob Jones
+#     aliases: [Bob]
+#     role: ELT
+
+people: []
+"""
+    (vault_path / "roster.yaml").write_text(_ROSTER_TEMPLATE)
 
     from pmao.excel import create_workbook
     create_workbook(vault_path / "workbook.xlsx", [])

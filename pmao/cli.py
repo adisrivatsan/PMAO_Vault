@@ -16,6 +16,7 @@ def cmd_init(args) -> None:
     init_vault(vault, project_name=project_name, owner=owner)
     print(f"Vault created: {vault.resolve()}")
     print(f"  project-config.yaml — project settings")
+    print(f"  roster.yaml         — people/owners (edit to add names and aliases)")
     print(f"  initiatives.json    — empty (seed via --roster FILE, or edit the file directly)")
     print(f"  workbook.xlsx       — blank workbook ready")
     if args.roster:
