@@ -189,3 +189,12 @@ def test_unquoted_yaml_dates_are_handled(tmp_path):
     assert inits[0].last_touched == date(2026, 10, 1)
     flags = _compute_lint_flags(inits, load_items(tmp_path, "tasks"))
     assert flags["overdue_actions"][0]["id"] == "t1"
+
+
+def test_project_missing_required_key_is_skipped_with_warning(tmp_path, capsys):
+    init_vault(tmp_path)
+    save_initiatives(tmp_path, [_make_initiative()])
+    (tmp_path / "projects" / "bad.md").write_text("---\ntype: project\nname: Bad\nstatus: in_progress\n---\n")
+    inits = load_initiatives(tmp_path)
+    assert [i.id for i in inits] == ["init-001"]
+    assert "bad.md" in capsys.readouterr().err

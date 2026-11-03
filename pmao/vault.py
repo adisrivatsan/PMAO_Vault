@@ -1,4 +1,5 @@
 import shutil
+import sys
 from pathlib import Path
 from typing import List
 import yaml
@@ -64,9 +65,14 @@ def _join_body(d: dict) -> str:
 
 
 def load_initiatives(vault_path: Path) -> List[Initiative]:
-    return [Initiative.from_dict({**{k: v for k, v in i.items() if k not in ("type", "body", "_file")},
-                                  **_split_body(i.get("body", ""))})
-            for i in read_items(vault_path, "projects")]
+    out = []
+    for i in read_items(vault_path, "projects"):
+        if not all(i.get(k) for k in ("id", "name", "status")):
+            print(f"Warning: skipping projects/{i['_file']}.md: missing id, name or status", file=sys.stderr)
+            continue
+        out.append(Initiative.from_dict({**{k: v for k, v in i.items() if k not in ("type", "body", "_file")},
+                                         **_split_body(i.get("body", ""))}))
+    return out
 
 
 def save_initiatives(vault_path: Path, initiatives: List[Initiative]) -> None:
