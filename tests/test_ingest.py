@@ -436,3 +436,21 @@ def test_run_status_reports_inbox_count(capsys):
             run_status(vault)
         out = capsys.readouterr().out
         assert "Inbox: 1 item(s) need filing: zed.md" in out
+
+
+def test_run_ingest_unmatched_only_goes_to_inbox(tmp_path):
+    vault = tmp_path / "vault"
+    init_vault(vault)
+    save_initiatives(vault, [_make_initiative()])
+    source = tmp_path / "notes.md"
+    source.write_text("Something about Zeta")
+
+    extraction = dict(_empty_extraction(), unmatched_references=[
+        {"mention": "Zeta", "context": "mentioned in passing"}])
+
+    with patch("pmao.llm.call_structured", return_value=extraction), \
+         patch("pmao.ingest._load_skill", return_value="{initiatives}\n{roster}\n{source}"):
+        from pmao.ingest import run_ingest
+        run_ingest(vault, source, yes=True)
+
+    assert len(list((vault / "inbox").glob("*.md"))) == 1

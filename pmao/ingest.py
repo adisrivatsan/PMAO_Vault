@@ -334,7 +334,7 @@ def run_ingest(
     has_changes = any(
         extraction.get(k) for k in
         ("initiative_updates", "new_actions", "completed_actions",
-         "meetings", "decisions", "hypotheses", "facts")
+         "meetings", "decisions", "hypotheses", "facts", "unmatched_references")
     )
     if not has_changes:
         print("Nothing extracted — no changes made.")
