@@ -54,7 +54,8 @@ Decisions stay in their own folder (user's call). Hypotheses and facts live in
 
 ## Frontmatter
 
-`type` is always required. Fields carry over from the current models:
+`type` is always required. Fields carry over from the current models.
+Note: the stored key linking an item to its project stays `initiative_id` (not `project`), keeping excel/lint/skills unchanged.
 
 - project: id, name, status (`not_started|in_progress|ready|complete`),
   priority, owner, due, people, last_touched; body holds current_state,

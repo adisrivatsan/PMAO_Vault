@@ -16,12 +16,19 @@ def cmd_init(args) -> None:
     init_vault(vault, project_name=project_name, owner=owner)
     print(f"Vault created: {vault.resolve()}")
     print(f"  project-config.yaml — project settings")
-    print(f"  roster.yaml         — people/owners (edit to add names and aliases)")
-    print(f"  initiatives.json    — empty (seed via --roster FILE, or edit the file directly)")
+    print(f"  SCHEMA.md           — vault conventions (read by the LLM on ingest)")
+    print(f"  projects/ tasks/ people/ meetings/ decisions/ notes/ docs/ inbox/")
+    print(f"                      — one markdown file per item (seed projects via --roster FILE)")
     print(f"  workbook.xlsx       — blank workbook ready")
     if args.roster:
         count = seed_from_csv(vault, Path(args.roster))
         print(f"  Seeded {count} initiatives from {Path(args.roster).name}")
+
+
+def cmd_migrate(args) -> None:
+    from pmao.migrate import migrate_vault
+    for folder, n in migrate_vault(Path(args.vault)).items():
+        print(f"{folder}: {n}")
 
 
 def cmd_ingest(args) -> None:
@@ -81,6 +88,10 @@ def main() -> None:
     p_init.add_argument("vault", help="Path to vault directory")
     p_init.add_argument("--roster", metavar="FILE", help="Seed initiative list from CSV (id,name,owner,priority)")
     p_init.set_defaults(func=cmd_init)
+
+    p_migrate = sub.add_parser("migrate", help="Convert an old JSON vault to the folder layout")
+    p_migrate.add_argument("vault", help="Path to vault directory")
+    p_migrate.set_defaults(func=cmd_migrate)
 
     p_ingest = sub.add_parser("ingest", help="Ingest source material and extract updates")
     p_ingest.add_argument("vault", help="Path to vault directory")

@@ -13,49 +13,58 @@ pmao ingest my-project --source meeting-notes.md
 
 # 3. View status dashboard
 pmao status my-project
+
+# Upgrading an old JSON vault
+pmao migrate my-project
 ```
 
-That's it. Three commands from zero to an updated dashboard.
+Three commands from zero to an updated dashboard.
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `pmao init <vault> [--roster FILE]` | Create vault; optionally seed initiatives from CSV |
+| `pmao init <vault> [--roster FILE]` | Create vault; optionally seed projects from CSV |
+| `pmao migrate <vault>` | Convert an old JSON vault (initiatives.json etc.) to the folder layout; safe to re-run |
 | `pmao ingest <vault> --source FILE [--yes] [--backend claude\|codex]` | Extract updates from source; show diff; confirm; apply |
 | `pmao status <vault> [--backend ...]` | LLM-rendered status dashboard |
 | `pmao summarize <vault> [--backend ...]` | Executive summary |
+| `pmao lint <vault> [--stale-days N]` | Health check |
 | `pmao export <vault>` | Regenerate `workbook.xlsx` |
 | `pmao config <vault>` | Print `project-config.yaml` |
 
 ## Vault Layout
 
+One folder per type, one markdown file (YAML frontmatter + body) per item:
+
 ```
 vault/
+  SCHEMA.md             # vault conventions; the LLM reads it on ingest
   project-config.yaml   # project_name, owner, llm_backend, llm_timeout_seconds
-  initiatives.json      # source of truth (10 fields: id, name, status, priority,
-                        #   owner, current_state, next_steps, last_touched,
-                        #   last_touch_comment, notes)
-  actions.json          # open action items
-  meetings.json         # meetings to schedule
-  decisions.json        # recorded decisions
-  hypotheses.json       # tracked hypotheses
-  facts.json            # extracted facts
+  projects/             # one file per project (status, priority, owner, current state, next steps)
+  tasks/                # action items
+  people/               # one file per person (name, aliases, role)
+  meetings/             # meetings to schedule
+  decisions/            # recorded decisions
+  notes/                # notes, hypotheses, facts
+  docs/                 # source files (transcripts, decks)
+  inbox/                # mentions ingest could not match to a project or person
   workbook.xlsx         # derived artifact (regenerate with `pmao export`)
-  transcripts/          # drop source files here
-  roster.yaml           # OPTIONAL: name + aliases for owner canonicalization
 ```
 
-## Roster (Optional)
+The stored key linking an item to its project is `initiative_id`.
 
-Create `roster.yaml` in your vault to canonicalize owner names during ingest:
+## People (Optional)
 
-```yaml
-people:
-  - name: Jane Smith
-    aliases: [Jane, JS]
-  - name: Alex Jordan
-    aliases: [Alex]
+Add a file per person in `people/` to canonicalize owner names during ingest:
+
+```markdown
+---
+type: person
+name: Jane Smith
+aliases: [Jane, JS]
+role: PM
+---
 ```
 
 ## Seeding Initiatives from CSV
