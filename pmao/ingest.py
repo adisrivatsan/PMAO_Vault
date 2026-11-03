@@ -173,6 +173,12 @@ def _print_diff(extraction: dict, initiatives: List[Initiative], actions: list) 
     print()
 
 
+def _next_id(prefix: str, today_str: str, *groups: list) -> str:
+    nums = [int(i["id"].rsplit("-", 1)[1]) for g in groups for i in g
+            if str(i.get("id", "")).startswith(prefix + "-") and i["id"].rsplit("-", 1)[1].isdigit()]
+    return f"{prefix}-{today_str}-{max(nums, default=0) + 1:04d}"
+
+
 def apply_updates(vault_path: Path, extraction: dict, transcript_name: str) -> None:
     initiatives = load_initiatives(vault_path)
     idx = {i.id: i for i in initiatives}
@@ -203,7 +209,7 @@ def apply_updates(vault_path: Path, extraction: dict, transcript_name: str) -> N
             continue
         new_actions.append({
             "type": "task",
-            "id": f"act-{today_str}-{len(actions) + len(new_actions):04d}",
+            "id": _next_id("act", today_str, actions, new_actions),
             "initiative_id": item.get("initiative_id", ""),
             "description": item["description"],
             "owner": item.get("owner", ""),
@@ -224,7 +230,7 @@ def apply_updates(vault_path: Path, extraction: dict, transcript_name: str) -> N
             continue
         new_meetings.append({
             "type": "meeting",
-            "id": f"mtg-{today_str}-{len(meetings) + len(new_meetings):04d}",
+            "id": _next_id("mtg", today_str, meetings, new_meetings),
             "initiative_id": m.get("initiative_id", ""),
             "purpose": m["purpose"],
             "attendees": m.get("attendees") or [],
@@ -241,7 +247,7 @@ def apply_updates(vault_path: Path, extraction: dict, transcript_name: str) -> N
             continue
         new_decisions.append({
             "type": "decision",
-            "id": f"dec-{today_str}-{len(decisions) + len(new_decisions):04d}",
+            "id": _next_id("dec", today_str, decisions, new_decisions),
             "initiative_id": dec.get("initiative_id", ""),
             "decision": dec["decision"],
             "rationale": dec.get("rationale", ""),
@@ -252,14 +258,14 @@ def apply_updates(vault_path: Path, extraction: dict, transcript_name: str) -> N
         })
     save_items(vault_path, "decisions", new_decisions, "decision")
 
-    n_hyp = len(load_items(vault_path, "notes", type="hypothesis"))
+    hyps = load_items(vault_path, "notes", type="hypothesis")
     new_hyp = []
     for hyp in extraction.get("hypotheses", []):
         if not hyp.get("hypothesis"):
             continue
         new_hyp.append({
             "type": "hypothesis",
-            "id": f"hyp-{today_str}-{n_hyp + len(new_hyp):04d}",
+            "id": _next_id("hyp", today_str, hyps, new_hyp),
             "initiative_id": hyp.get("initiative_id"),
             "hypothesis": hyp["hypothesis"],
             "owner": hyp.get("owner", ""),
@@ -270,14 +276,14 @@ def apply_updates(vault_path: Path, extraction: dict, transcript_name: str) -> N
         })
     save_items(vault_path, "notes", new_hyp, "hypothesis")
 
-    n_facts = len(load_items(vault_path, "notes", type="fact"))
+    facts = load_items(vault_path, "notes", type="fact")
     new_facts = []
     for fact in extraction.get("facts", []):
         if not fact.get("claim"):
             continue
         new_facts.append({
             "type": "fact",
-            "id": f"fact-{today_str}-{n_facts + len(new_facts):04d}",
+            "id": _next_id("fact", today_str, facts, new_facts),
             "initiative_id": fact.get("initiative_id", ""),
             "claim": fact["claim"],
             "stated_by": fact.get("stated_by", ""),

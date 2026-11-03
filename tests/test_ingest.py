@@ -454,3 +454,17 @@ def test_run_ingest_unmatched_only_goes_to_inbox(tmp_path):
         run_ingest(vault, source, yes=True)
 
     assert len(list((vault / "inbox").glob("*.md"))) == 1
+
+
+def test_new_ids_do_not_collide_after_delete(tmp_path):
+    init_vault(tmp_path)
+    save_initiatives(tmp_path, [_make_initiative()])
+    for desc in ("First", "Second"):
+        apply_updates(tmp_path, dict(_empty_extraction(), new_actions=[{"description": desc}]), "m.md")
+    (tmp_path / "tasks" / "first.md").unlink()
+    apply_updates(tmp_path, dict(_empty_extraction(), new_actions=[{"description": "Third"}]), "m.md")
+    ids = {a["description"]: a["id"] for a in load_items(tmp_path, "tasks")}
+    assert ids["Third"] != ids["Second"]
+    apply_updates(tmp_path, dict(_empty_extraction(), completed_actions=[ids["Second"]]), "m.md")
+    status = {a["description"]: a["status"] for a in load_items(tmp_path, "tasks")}
+    assert status == {"Second": "done", "Third": "open"}
