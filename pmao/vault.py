@@ -84,13 +84,6 @@ def save_items(vault_path: Path, folder: str, items: List[dict], title_key: str)
         write_item(vault_path, folder, item, str(item.get(title_key) or "item"))
 
 
-def load_list(vault_path: Path, filename: str) -> list:
-    # Temporary shim until Task 4 moves ingest onto load_items.
-    import json
-    path = vault_path / filename
-    return json.loads(path.read_text()) if path.exists() else []
-
-
 def refresh_workbook(vault_path: Path) -> None:
     from pmao.excel import create_workbook
     create_workbook(

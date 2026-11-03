@@ -1,4 +1,3 @@
-import json
 import tempfile
 from datetime import date
 from pathlib import Path
@@ -6,7 +5,8 @@ from unittest.mock import patch
 
 from pmao.models import Initiative
 from pmao.ingest import apply_updates, _build_ingest_prompt, CLEAR_SENTINEL
-from pmao.vault import init_vault, save_initiatives, load_initiatives, load_list
+from pmao.store import write_item
+from pmao.vault import init_vault, save_initiatives, load_initiatives, load_items
 
 
 def _make_initiative(id_="init-001", name="Customer Data Platform", status="not_started"):
@@ -141,7 +141,7 @@ def test_apply_updates_new_actions():
         }])
         apply_updates(vault, extraction, "meeting.md")
 
-        actions = load_list(vault, "actions.json")
+        actions = load_items(vault, "tasks")
         assert len(actions) == 1
         assert actions[0]["owner"] == "Alex Jordan"
         assert actions[0]["status"] == "open"
@@ -153,7 +153,8 @@ def test_apply_updates_completed_actions():
         vault = Path(tmp)
         init_vault(vault)
         save_initiatives(vault, [_make_initiative()])
-        (vault / "actions.json").write_text(json.dumps([{
+        write_item(vault, "tasks", {
+            "type": "task",
             "id": "act-2026-06-08-0000",
             "initiative_id": "init-001",
             "description": "Old task",
@@ -162,13 +163,15 @@ def test_apply_updates_completed_actions():
             "status": "open",
             "created": "2026-06-08",
             "source": "old.md",
-        }]))
+        }, "Old task")
 
         extraction = dict(_empty_extraction(), completed_actions=["act-2026-06-08-0000"])
         apply_updates(vault, extraction, "meeting.md")
 
-        actions = load_list(vault, "actions.json")
+        actions = load_items(vault, "tasks")
         assert actions[0]["status"] == "done"
+        assert actions[0]["_file"] == "old-task"
+        assert len(list((vault / "tasks").glob("*.md"))) == 1
 
 
 def test_apply_updates_meetings():
@@ -184,7 +187,7 @@ def test_apply_updates_meetings():
         }])
         apply_updates(vault, extraction, "notes.md")
 
-        meetings = load_list(vault, "meetings.json")
+        meetings = load_items(vault, "meetings")
         assert len(meetings) == 1
         assert meetings[0]["purpose"] == "Kickoff with data team"
         assert meetings[0]["id"].startswith("mtg-")
@@ -204,7 +207,7 @@ def test_apply_updates_decisions():
         }])
         apply_updates(vault, extraction, "meeting.vtt")
 
-        decisions = load_list(vault, "decisions.json")
+        decisions = load_items(vault, "decisions")
         assert len(decisions) == 1
         assert decisions[0]["decision"] == "Budget approved at $500K"
         assert decisions[0]["status"] == "recorded"
@@ -225,7 +228,7 @@ def test_apply_updates_hypotheses():
         }])
         apply_updates(vault, extraction, "call.vtt")
 
-        hypotheses = load_list(vault, "hypotheses.json")
+        hypotheses = load_items(vault, "notes", type="hypothesis")
         assert len(hypotheses) == 1
         assert hypotheses[0]["status"] == "open"
         assert hypotheses[0]["id"].startswith("hyp-")
@@ -244,7 +247,7 @@ def test_apply_updates_hypothesis_null_initiative_id():
         }])
         apply_updates(vault, extraction, "all-hands.vtt")
 
-        hypotheses = load_list(vault, "hypotheses.json")
+        hypotheses = load_items(vault, "notes", type="hypothesis")
         assert hypotheses[0]["initiative_id"] is None
 
 
@@ -261,7 +264,7 @@ def test_apply_updates_facts():
         }])
         apply_updates(vault, extraction, "sync.vtt")
 
-        facts = load_list(vault, "facts.json")
+        facts = load_items(vault, "notes", type="fact")
         assert len(facts) == 1
         assert facts[0]["claim"] == "Q2 cost-to-serve up 9%"
         assert facts[0]["id"].startswith("fact-")
@@ -370,7 +373,8 @@ def test_run_status_shows_hypothesis_count(capsys):
              "owner": "", "validation_path": "", "created": "2026-06-09",
              "source": "x.vtt", "id": "hyp-3"},
         ]
-        (vault / "hypotheses.json").write_text(json.dumps(hyps))
+        for h in hyps:
+            write_item(vault, "notes", {"type": "hypothesis", **h}, h["hypothesis"])
 
         with patch("pmao.llm.call_text", return_value="STATUS OUTPUT"), \
              patch("pmao.ingest._load_skill", return_value="{initiatives}"):
@@ -381,3 +385,54 @@ def test_run_status_shows_hypothesis_count(capsys):
         assert "Hypotheses: 2 open" in out
         assert "1 initiative-level" in out
         assert "1 project-level" in out
+
+
+def test_unmatched_reference_written_to_inbox():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        save_initiatives(vault, [_make_initiative()])
+        extraction = dict(_empty_extraction(), unmatched_references=[
+            {"mention": "Project Zed", "context": "we should revisit Zed"}])
+        apply_updates(vault, extraction, "meeting.md")
+
+        items = load_items(vault, "inbox")
+        assert len(items) == 1
+        assert items[0]["type"] == "inbox"
+        assert items[0]["mention"] == "Project Zed"
+        assert items[0]["context"] == "we should revisit Zed"
+        assert items[0]["source"] == "meeting.md"
+        assert items[0]["created"]
+
+
+def test_completed_action_rewrites_same_file():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        save_initiatives(vault, [_make_initiative()])
+        write_item(vault, "tasks", {"type": "task", "id": "act-1", "initiative_id": "init-001",
+                                    "description": "Do it", "status": "open"}, "Do it")
+        apply_updates(vault, dict(_empty_extraction(), completed_actions=["act-1"]), "m.md")
+        assert [p.name for p in (vault / "tasks").glob("*.md")] == ["do-it.md"]
+        assert "status: done" in (vault / "tasks" / "do-it.md").read_text()
+
+
+def test_build_ingest_prompt_substitutes_schema():
+    prompt = _build_ingest_prompt("{schema}|{initiatives}|{source}|{roster}", [_make_initiative()],
+                                  "src", "", schema="SCHEMA TEXT")
+    assert "SCHEMA TEXT" in prompt
+    assert "{schema}" not in prompt
+
+
+def test_run_status_reports_inbox_count(capsys):
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        save_initiatives(vault, [_make_initiative()])
+        write_item(vault, "inbox", {"type": "inbox", "mention": "Zed", "context": "ctx"}, "Zed")
+        with patch("pmao.llm.call_text", return_value="STATUS OUTPUT"), \
+             patch("pmao.ingest._load_skill", return_value="{initiatives}"):
+            from pmao.ingest import run_status
+            run_status(vault)
+        out = capsys.readouterr().out
+        assert "Inbox: 1 item(s) need filing: zed.md" in out

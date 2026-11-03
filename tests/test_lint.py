@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from pmao.models import Initiative
+from pmao.store import write_item
 from pmao.vault import init_vault, save_initiatives
 
 
@@ -166,3 +167,19 @@ def test_run_lint_prints_llm_output(capsys):
 
         out = capsys.readouterr().out
         assert "MOCK LINT REPORT" in out
+
+
+def test_run_lint_reports_inbox_count(capsys):
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        save_initiatives(vault, [_make_initiative(days_ago=5)])
+        write_item(vault, "inbox", {"type": "inbox", "mention": "Zed", "context": "ctx"}, "Zed")
+
+        with patch("pmao.llm.call_text", return_value="MOCK LINT REPORT"), \
+             patch("pmao.ingest._load_skill", return_value="{pre_flags}"):
+            from pmao.ingest import run_lint
+            run_lint(vault)
+
+        out = capsys.readouterr().out
+        assert "Inbox: 1 item(s) need filing: zed.md" in out

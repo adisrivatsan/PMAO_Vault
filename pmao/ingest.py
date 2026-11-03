@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List
 
 from pmao.models import Initiative
-from pmao.vault import load_initiatives, save_initiatives, refresh_workbook, load_list
+from pmao.vault import load_initiatives, save_initiatives, refresh_workbook, load_items, save_items
 
 CLEAR_SENTINEL = "[clear]"
 
@@ -95,6 +95,7 @@ def _build_ingest_prompt(
     initiatives: List[Initiative],
     source_text: str,
     roster_text: str = "",
+    schema: str = "",
 ) -> str:
     init_list = "\n".join(
         f"  {i.id}: {i.name} (status: {i.status})"
@@ -105,6 +106,7 @@ def _build_ingest_prompt(
         .replace("{initiatives}", init_list)
         .replace("{source}", source_text)
         .replace("{roster}", roster_text)
+        .replace("{schema}", schema)
     )
 
 
@@ -193,13 +195,15 @@ def apply_updates(vault_path: Path, extraction: dict, transcript_name: str) -> N
             init.status = status
         init.last_touched = today
 
-    actions = load_list(vault_path, "actions.json")
+    actions = load_items(vault_path, "tasks")
     actions_idx = {a["id"]: a for a in actions}
+    new_actions = []
     for item in extraction.get("new_actions", []):
         if not item.get("description"):
             continue
-        actions.append({
-            "id": f"act-{today_str}-{len(actions):04d}",
+        new_actions.append({
+            "type": "task",
+            "id": f"act-{today_str}-{len(actions) + len(new_actions):04d}",
             "initiative_id": item.get("initiative_id", ""),
             "description": item["description"],
             "owner": item.get("owner", ""),
@@ -208,17 +212,19 @@ def apply_updates(vault_path: Path, extraction: dict, transcript_name: str) -> N
             "created": today_str,
             "source": transcript_name,
         })
-    for aid in extraction.get("completed_actions", []):
-        if aid in actions_idx:
-            actions_idx[aid]["status"] = "done"
-    (vault_path / "actions.json").write_text(json.dumps(actions, indent=2))
+    done = [actions_idx[aid] for aid in extraction.get("completed_actions", []) if aid in actions_idx]
+    for a in done:
+        a["status"] = "done"
+    save_items(vault_path, "tasks", done + new_actions, "description")
 
-    meetings = load_list(vault_path, "meetings.json")
+    meetings = load_items(vault_path, "meetings")
+    new_meetings = []
     for m in extraction.get("meetings", []):
         if not m.get("purpose"):
             continue
-        meetings.append({
-            "id": f"mtg-{today_str}-{len(meetings):04d}",
+        new_meetings.append({
+            "type": "meeting",
+            "id": f"mtg-{today_str}-{len(meetings) + len(new_meetings):04d}",
             "initiative_id": m.get("initiative_id", ""),
             "purpose": m["purpose"],
             "attendees": m.get("attendees") or [],
@@ -226,14 +232,16 @@ def apply_updates(vault_path: Path, extraction: dict, transcript_name: str) -> N
             "created": today_str,
             "source": transcript_name,
         })
-    (vault_path / "meetings.json").write_text(json.dumps(meetings, indent=2))
+    save_items(vault_path, "meetings", new_meetings, "purpose")
 
-    decisions = load_list(vault_path, "decisions.json")
+    decisions = load_items(vault_path, "decisions")
+    new_decisions = []
     for dec in extraction.get("decisions", []):
         if not dec.get("decision"):
             continue
-        decisions.append({
-            "id": f"dec-{today_str}-{len(decisions):04d}",
+        new_decisions.append({
+            "type": "decision",
+            "id": f"dec-{today_str}-{len(decisions) + len(new_decisions):04d}",
             "initiative_id": dec.get("initiative_id", ""),
             "decision": dec["decision"],
             "rationale": dec.get("rationale", ""),
@@ -242,14 +250,16 @@ def apply_updates(vault_path: Path, extraction: dict, transcript_name: str) -> N
             "created": today_str,
             "source": transcript_name,
         })
-    (vault_path / "decisions.json").write_text(json.dumps(decisions, indent=2))
+    save_items(vault_path, "decisions", new_decisions, "decision")
 
-    all_hyp = load_list(vault_path, "hypotheses.json")
+    n_hyp = len(load_items(vault_path, "notes", type="hypothesis"))
+    new_hyp = []
     for hyp in extraction.get("hypotheses", []):
         if not hyp.get("hypothesis"):
             continue
-        all_hyp.append({
-            "id": f"hyp-{today_str}-{len(all_hyp):04d}",
+        new_hyp.append({
+            "type": "hypothesis",
+            "id": f"hyp-{today_str}-{n_hyp + len(new_hyp):04d}",
             "initiative_id": hyp.get("initiative_id"),
             "hypothesis": hyp["hypothesis"],
             "owner": hyp.get("owner", ""),
@@ -258,14 +268,16 @@ def apply_updates(vault_path: Path, extraction: dict, transcript_name: str) -> N
             "created": today_str,
             "source": transcript_name,
         })
-    (vault_path / "hypotheses.json").write_text(json.dumps(all_hyp, indent=2))
+    save_items(vault_path, "notes", new_hyp, "hypothesis")
 
-    all_facts = load_list(vault_path, "facts.json")
+    n_facts = len(load_items(vault_path, "notes", type="fact"))
+    new_facts = []
     for fact in extraction.get("facts", []):
         if not fact.get("claim"):
             continue
-        all_facts.append({
-            "id": f"fact-{today_str}-{len(all_facts):04d}",
+        new_facts.append({
+            "type": "fact",
+            "id": f"fact-{today_str}-{n_facts + len(new_facts):04d}",
             "initiative_id": fact.get("initiative_id", ""),
             "claim": fact["claim"],
             "stated_by": fact.get("stated_by", ""),
@@ -273,7 +285,15 @@ def apply_updates(vault_path: Path, extraction: dict, transcript_name: str) -> N
             "created": today_str,
             "source": transcript_name,
         })
-    (vault_path / "facts.json").write_text(json.dumps(all_facts, indent=2))
+    save_items(vault_path, "notes", new_facts, "claim")
+
+    save_items(vault_path, "inbox", [{
+        "type": "inbox",
+        "mention": ref.get("mention", ""),
+        "context": ref.get("context", ""),
+        "source": transcript_name,
+        "created": today_str,
+    } for ref in extraction.get("unmatched_references", [])], "mention")
 
     save_initiatives(vault_path, initiatives)
     refresh_workbook(vault_path)
@@ -297,7 +317,9 @@ def run_ingest(
     roster_text = render_roster(roster_people) if roster_people else ""
 
     skill = _load_skill("ingest")
-    prompt = _build_ingest_prompt(skill, initiatives, text, roster_text)
+    schema_file = vault_path / "SCHEMA.md"
+    schema = schema_file.read_text(encoding="utf-8") if schema_file.exists() else ""
+    prompt = _build_ingest_prompt(skill, initiatives, text, roster_text, schema)
 
     print("Calling LLM for extraction (this may take ~30s)...")
     extraction = call_structured(prompt, config_override=config_override, vault_path=vault_path)
@@ -306,7 +328,7 @@ def run_ingest(
                 "meetings", "decisions", "hypotheses", "facts", "unmatched_references"):
         extraction.setdefault(key, [])
 
-    actions = load_list(vault_path, "actions.json")
+    actions = load_items(vault_path, "tasks")
     _print_diff(extraction, initiatives, actions)
 
     has_changes = any(
@@ -328,6 +350,13 @@ def run_ingest(
     print(f"\nDone. workbook.xlsx updated.")
 
 
+def _print_inbox(vault_path: Path) -> None:
+    inbox = load_items(vault_path, "inbox")
+    if inbox:
+        names = ", ".join(f"{i['_file']}.md" for i in inbox)
+        print(f"Inbox: {len(inbox)} item(s) need filing: {names}")
+
+
 def run_status(vault_path: Path, config_override: str = None) -> None:
     from pmao.llm import call_text
 
@@ -344,12 +373,13 @@ def run_status(vault_path: Path, config_override: str = None) -> None:
     prompt = skill.replace("{initiatives}", init_list)
     print(call_text(prompt, config_override=config_override, vault_path=vault_path))
 
-    all_hyp = load_list(vault_path, "hypotheses.json")
+    all_hyp = load_items(vault_path, "notes", type="hypothesis")
     open_hyp = [h for h in all_hyp if h.get("status") in ("open", "exploring")]
     initiative_level = [h for h in open_hyp if h.get("initiative_id")]
     project_level = [h for h in open_hyp if not h.get("initiative_id")]
     print(f"\nHypotheses: {len(open_hyp)} open "
           f"({len(initiative_level)} initiative-level, {len(project_level)} project-level)")
+    _print_inbox(vault_path)
 
 
 def run_summarize(vault_path: Path, config_override: str = None) -> None:
@@ -360,11 +390,11 @@ def run_summarize(vault_path: Path, config_override: str = None) -> None:
     state = json.dumps(
         {
             "initiatives": [i.to_dict() for i in initiatives],
-            "actions": load_list(vault_path, "actions.json"),
-            "decisions": load_list(vault_path, "decisions.json"),
-            "hypotheses": load_list(vault_path, "hypotheses.json"),
-            "meetings": load_list(vault_path, "meetings.json"),
-            "facts": load_list(vault_path, "facts.json"),
+            "actions": load_items(vault_path, "tasks"),
+            "decisions": load_items(vault_path, "decisions"),
+            "hypotheses": load_items(vault_path, "notes", type="hypothesis"),
+            "meetings": load_items(vault_path, "meetings"),
+            "facts": load_items(vault_path, "notes", type="fact"),
         },
         indent=2,
         default=str,
@@ -385,10 +415,10 @@ def run_lint(
         print("Nothing to lint — vault has no initiatives.")
         return
 
-    actions = load_list(vault_path, "actions.json")
-    decisions = load_list(vault_path, "decisions.json")
-    hypotheses = load_list(vault_path, "hypotheses.json")
-    facts = load_list(vault_path, "facts.json")
+    actions = load_items(vault_path, "tasks")
+    decisions = load_items(vault_path, "decisions")
+    hypotheses = load_items(vault_path, "notes", type="hypothesis")
+    facts = load_items(vault_path, "notes", type="fact")
 
     flags = _compute_lint_flags(initiatives, actions, stale_days=stale_days)
     pre_flags = _format_pre_flags(flags, stale_days)
@@ -406,3 +436,4 @@ def run_lint(
     )
 
     print(call_text(prompt, config_override=config_override, vault_path=vault_path))
+    _print_inbox(vault_path)

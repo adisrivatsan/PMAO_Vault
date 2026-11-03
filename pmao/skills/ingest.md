@@ -11,6 +11,10 @@ You are a project management assistant. Read the source material below and extra
 
 {roster}
 
+## Vault schema (filing rules)
+
+{schema}
+
 ## Current initiatives
 
 {initiatives}
@@ -47,7 +51,7 @@ You are a project management assistant. Read the source material below and extra
 
 8. **unmatched_references** — initiative mentions that could not be mapped to a known id:
    - `mention` (the text as stated), `context` (surrounding sentence or phrase)
-   Never silently create or drop unmatched mentions — always put them here.
+   Never silently create or drop unmatched mentions — always put them here. Put anything else you cannot place under the vault schema in `unmatched_references` too.
 
 ## Rules
 
