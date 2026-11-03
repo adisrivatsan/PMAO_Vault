@@ -6,7 +6,7 @@ from typing import Dict
 import yaml
 
 from pmao.models import Initiative
-from pmao.store import FOLDERS, read_items, write_item
+from pmao.store import BODY_FIELD, FOLDERS, read_items, write_item
 from pmao.vault import load_initiatives, save_initiatives
 
 # (json file, target folder, item type, title key)
@@ -35,12 +35,12 @@ def migrate_vault(vault_path: Path) -> Dict[str, int]:
     counts["projects"] = len(new)
 
     for fname, folder, type_, title_key in _JSON_SOURCES:
-        seen = {i.get("id") for i in read_items(vault_path, folder)}
+        body = BODY_FIELD[type_]
+        seen = {i.get("id") or i.get(body) for i in read_items(vault_path, folder)}
         for item in _load_json(vault_path / fname):
-            if item.get("id") in seen:
+            if (item.get("id") or item.get(body)) in seen:
                 continue
             write_item(vault_path, folder, {"type": type_, **item}, str(item.get(title_key) or "item"))
-            seen.add(item.get("id"))
             counts[folder] += 1
 
     roster = vault_path / "roster.yaml"

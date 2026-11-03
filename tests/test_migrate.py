@@ -70,3 +70,15 @@ def test_migrate_leaves_old_files(tmp_path):
     migrate_vault(tmp_path)
     assert (tmp_path / "initiatives.json").exists()
     assert (tmp_path / "roster.yaml").exists()
+
+
+def test_migrate_keeps_duplicate_id_and_no_id_items(tmp_path):
+    (tmp_path / "actions.json").write_text(json.dumps([
+        {"id": "a1", "description": "First", "status": "open"},
+        {"id": "a1", "description": "Second", "status": "open"},
+        {"description": "No id one", "status": "open"},
+        {"description": "No id two", "status": "open"}]))
+    assert migrate_vault(tmp_path)["tasks"] == 4
+    assert len(load_items(tmp_path, "tasks")) == 4
+    assert migrate_vault(tmp_path)["tasks"] == 0
+    assert len(load_items(tmp_path, "tasks")) == 4
