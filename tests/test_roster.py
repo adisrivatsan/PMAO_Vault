@@ -1,65 +1,37 @@
-import tempfile
-from pathlib import Path
-
 from pmao.roster import load_roster, render_roster
 
 
-ROSTER_YAML = """\
-people:
-  - name: Sarah Klein
-    aliases: [Sarah, Sarah K]
-  - name: Dev Patel
-    aliases: [Dev]
-"""
+def _person(vault, stem, text):
+    d = vault / "people"
+    d.mkdir(exist_ok=True)
+    (d / f"{stem}.md").write_text(text)
 
 
-def test_load_roster_returns_people():
-    with tempfile.TemporaryDirectory() as tmp:
-        vault = Path(tmp)
-        (vault / "roster.yaml").write_text(ROSTER_YAML)
-        people = load_roster(vault)
-        assert len(people) == 2
-        assert people[0]["name"] == "Sarah Klein"
+def test_load_roster_reads_people_folder(tmp_path):
+    _person(tmp_path, "jane-smith",
+            "---\ntype: person\nname: Jane Smith\naliases: [Jane]\nrole: PM\n---\n")
+    people = load_roster(tmp_path)
+    assert len(people) == 1
+    assert people[0]["name"] == "Jane Smith"
+    assert people[0]["aliases"] == ["Jane"]
+    assert people[0]["role"] == "PM"
 
 
-def test_load_roster_missing_file_returns_none():
-    with tempfile.TemporaryDirectory() as tmp:
-        assert load_roster(Path(tmp)) is None
+def test_load_roster_missing_folder_returns_none(tmp_path):
+    assert load_roster(tmp_path) is None
 
 
-def test_load_roster_invalid_yaml_warns_and_returns_none(capsys):
-    with tempfile.TemporaryDirectory() as tmp:
-        vault = Path(tmp)
-        (vault / "roster.yaml").write_text("people: [unclosed")
-        result = load_roster(vault)
-        assert result is None
-        assert "Warning" in capsys.readouterr().out
+def test_load_roster_empty_folder_returns_none(tmp_path):
+    (tmp_path / "people").mkdir()
+    assert load_roster(tmp_path) is None
 
 
-def test_load_roster_missing_people_key_warns_and_returns_none(capsys):
-    with tempfile.TemporaryDirectory() as tmp:
-        vault = Path(tmp)
-        (vault / "roster.yaml").write_text("staff:\n  - name: X\n")
-        result = load_roster(vault)
-        assert result is None
-        assert "Warning" in capsys.readouterr().out
-
-
-def test_load_roster_person_without_name_warns_and_returns_none(capsys):
-    with tempfile.TemporaryDirectory() as tmp:
-        vault = Path(tmp)
-        (vault / "roster.yaml").write_text("people:\n  - aliases: [Bob]\n")
-        result = load_roster(vault)
-        assert result is None
-        assert "Warning" in capsys.readouterr().out
-
-
-def test_load_roster_valid_optional_fields_load():
-    with tempfile.TemporaryDirectory() as tmp:
-        vault = Path(tmp)
-        (vault / "roster.yaml").write_text(ROSTER_YAML)
-        people = load_roster(vault)
-        assert people[0]["aliases"] == ["Sarah", "Sarah K"]
+def test_load_roster_skips_person_without_name(tmp_path, capsys):
+    _person(tmp_path, "nameless", "---\ntype: person\nrole: PM\n---\n")
+    _person(tmp_path, "dev-patel", "---\ntype: person\nname: Dev Patel\n---\n")
+    people = load_roster(tmp_path)
+    assert [p["name"] for p in people] == ["Dev Patel"]
+    assert "Warning" in capsys.readouterr().err
 
 
 def test_render_roster_shows_name_and_aliases():

@@ -1,26 +1,18 @@
+import sys
 from pathlib import Path
 from typing import List, Optional
 
-import yaml
+from pmao import store
 
 
 def load_roster(vault_path: Path) -> Optional[List[dict]]:
-    roster_path = vault_path / "roster.yaml"
-    if not roster_path.exists():
-        return None
-    try:
-        data = yaml.safe_load(roster_path.read_text(encoding="utf-8"))
-    except yaml.YAMLError as e:
-        print(f"Warning: roster.yaml is not valid YAML — {e}")
-        return None
-    if not isinstance(data, dict) or not isinstance(data.get("people"), list):
-        print("Warning: roster.yaml must contain a top-level 'people:' list — ignoring")
-        return None
-    for i, person in enumerate(data["people"]):
-        if not isinstance(person, dict) or not isinstance(person.get("name"), str):
-            print(f"Warning: roster.yaml people[{i}] missing valid 'name' string — ignoring roster")
-            return None
-    return data["people"]
+    people = []
+    for item in store.read_items(vault_path, "people"):
+        if not isinstance(item.get("name"), str):
+            print(f"Warning: skipping people/{item['_file']}.md: missing 'name'", file=sys.stderr)
+            continue
+        people.append(item)
+    return people or None
 
 
 def render_roster(people: Optional[List[dict]]) -> str:
