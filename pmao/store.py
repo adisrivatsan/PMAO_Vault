@@ -1,4 +1,5 @@
 import re
+from datetime import date, datetime
 import shutil
 import sys
 from pathlib import Path
@@ -65,6 +66,7 @@ def read_items(vault: Path, folder: str) -> List[dict]:
         except ValueError as e:
             print(f"Warning: skipping {folder}/{path.name}: {e}", file=sys.stderr)
             continue
+        meta = {k: v.isoformat() if isinstance(v, (date, datetime)) else v for k, v in meta.items()}
         field = BODY_FIELD.get(meta["type"])
         if field and body:
             meta[field] = body

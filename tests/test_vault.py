@@ -176,3 +176,16 @@ def test_section_heading_in_text_round_trips(tmp_path):
         got = load_initiatives(tmp_path)[0]
         for k, v in kw.items():
             assert getattr(got, k) == v
+
+
+def test_unquoted_yaml_dates_are_handled(tmp_path):
+    from pmao.ingest import _compute_lint_flags
+    init_vault(tmp_path)
+    (tmp_path / "projects" / "p.md").write_text(
+        "---\ntype: project\nid: p1\nname: P\nstatus: in_progress\nlast_touched: 2026-10-01\n---\n")
+    (tmp_path / "tasks" / "t.md").write_text(
+        "---\ntype: task\nid: t1\nstatus: open\ndue: 2026-10-01\n---\n\nDo\n")
+    inits = load_initiatives(tmp_path)
+    assert inits[0].last_touched == date(2026, 10, 1)
+    flags = _compute_lint_flags(inits, load_items(tmp_path, "tasks"))
+    assert flags["overdue_actions"][0]["id"] == "t1"
