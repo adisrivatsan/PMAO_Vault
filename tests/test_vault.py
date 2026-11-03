@@ -198,3 +198,21 @@ def test_project_missing_required_key_is_skipped_with_warning(tmp_path, capsys):
     inits = load_initiatives(tmp_path)
     assert [i.id for i in inits] == ["init-001"]
     assert "bad.md" in capsys.readouterr().err
+
+
+def test_save_preserves_extra_keys_and_skips_unchanged(tmp_path):
+    init_vault(tmp_path)
+    save_initiatives(tmp_path, [_make_initiative(), _make_initiative("init-002", "Other")])
+    f = tmp_path / "projects" / "customer-data-platform.md"
+    f.write_text(f.read_text().replace("\n---\n", "\ntags:\n- q4\n---\n", 1))
+    other = tmp_path / "projects" / "other.md"
+    before = other.read_bytes()
+    mtime = other.stat().st_mtime_ns
+
+    inits = load_initiatives(tmp_path)
+    inits[0].owner = "Sam"
+    save_initiatives(tmp_path, inits)
+
+    assert "tags:\n- q4" in f.read_text() and "owner: Sam" in f.read_text()
+    assert other.read_bytes() == before and other.stat().st_mtime_ns == mtime
+    assert not (tmp_path / "projects" / "other.md.bak").exists()

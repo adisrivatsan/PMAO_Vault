@@ -76,13 +76,17 @@ def load_initiatives(vault_path: Path) -> List[Initiative]:
 
 
 def save_initiatives(vault_path: Path, initiatives: List[Initiative]) -> None:
-    files = {i["id"]: i["_file"] for i in read_items(vault_path, "projects") if "id" in i}
+    existing = {i["id"]: i for i in read_items(vault_path, "projects") if "id" in i}
     for init in initiatives:
         d = init.to_dict()
-        item = {"type": "project", **{k: v for k, v in d.items() if k not in _SECTION_FIELDS},
-                "body": _join_body(d)}
-        if init.id in files:
-            item["_file"] = files[init.id]
+        item = {"type": "project", **{k: v for k, v in d.items() if k not in _SECTION_FIELDS}}
+        old = existing.get(init.id)
+        if old:
+            item.update({k: v for k, v in old.items() if k not in (*item, "body", "_file")})
+            item["_file"] = old["_file"]
+        item["body"] = _join_body(d)
+        if old and old == {k: v for k, v in item.items() if v or k != "body"}:
+            continue
         write_item(vault_path, "projects", item, init.name)
 
 
