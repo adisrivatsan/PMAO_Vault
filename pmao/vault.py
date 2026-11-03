@@ -14,6 +14,7 @@ _SECTIONS = (
     ("last_touch_comment", "## Last touch"),
     ("notes", "## Notes"),
 )
+_HEADINGS = {h for _, h in _SECTIONS}
 _SECTION_FIELDS = {key for key, _ in _SECTIONS}
 
 
@@ -50,12 +51,16 @@ def _split_body(body: str) -> dict:
             key = headings[line]
             out[key] = []
         elif key:
-            out[key].append(line)
+            out[key].append(line[1:] if line.startswith("\\") and line.lstrip("\\") in _HEADINGS else line)
     return {k: "\n".join(v).strip("\n") or None for k, v in out.items()}
 
 
+def _escape(text: str) -> str:
+    return "\n".join("\\" + l if l.lstrip("\\") in _HEADINGS else l for l in text.split("\n"))
+
+
 def _join_body(d: dict) -> str:
-    return "\n\n".join(f"{h}\n{d[key]}" for key, h in _SECTIONS if d.get(key))
+    return "\n\n".join(f"{h}\n{_escape(d[key])}" for key, h in _SECTIONS if d.get(key))
 
 
 def load_initiatives(vault_path: Path) -> List[Initiative]:

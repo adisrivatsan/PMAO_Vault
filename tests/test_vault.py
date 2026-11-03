@@ -163,3 +163,16 @@ def test_cmd_init_existing_vault_exits_before_prompting(monkeypatch, capsys):
                 main()
         assert exc.value.code == 1
         assert prompts == []
+
+
+def test_section_heading_in_text_round_trips(tmp_path):
+    init_vault(tmp_path)
+    cases = [dict(notes="foo\n## Next steps\nbar"),
+             dict(current_state="cs\n## Notes\ntail", notes="real notes"),
+             dict(next_steps="a\n## Current state\nb"),
+             dict(last_touch_comment="x\n## Last touch\ny")]
+    for kw in cases:
+        save_initiatives(tmp_path, [_make_initiative(**kw)])
+        got = load_initiatives(tmp_path)[0]
+        for k, v in kw.items():
+            assert getattr(got, k) == v
