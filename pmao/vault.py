@@ -1,47 +1,33 @@
-import json
 import shutil
 from pathlib import Path
 from typing import List
 import yaml
 
 from pmao.models import Initiative
+from pmao.store import FOLDERS, read_items, write_item
 
-VAULT_FILES = [
-    "project-config.yaml",
-    "roster.yaml",
-    "initiatives.json",
-    "actions.json",
-    "meetings.json",
-    "decisions.json",
-    "hypotheses.json",
-    "facts.json",
-    "workbook.xlsx",
-]
+VAULT_DIRS = FOLDERS
 
-_DEAD_FILES = ("signals.json", "questions.json")
-_DEAD_DIRS = ("staging",)
-
-
-def _cleanup_dead_files(vault_path: Path) -> None:
-    for name in _DEAD_FILES:
-        p = vault_path / name
-        if p.exists():
-            p.unlink()
-    for name in _DEAD_DIRS:
-        p = vault_path / name
-        if p.exists():
-            shutil.rmtree(p)
+_SECTIONS = (
+    ("current_state", "## Current state"),
+    ("next_steps", "## Next steps"),
+    ("last_touch_comment", "## Last touch"),
+    ("notes", "## Notes"),
+)
+_SECTION_FIELDS = {key for key, _ in _SECTIONS}
 
 
 def init_vault(vault_path: Path, project_name: str = "My Project", owner: str = "") -> None:
-    for marker in ("project-config.yaml", "initiatives.json"):
-        if (vault_path / marker).exists():
-            raise FileExistsError(
-                f"{vault_path} already contains {marker} — refusing to overwrite "
-                f"an existing vault. Delete the directory first to re-init."
-            )
+    existing = [p for p in [vault_path / "project-config.yaml", *sorted((vault_path / "projects").glob("*.md"))]
+                if p.exists()]
+    if existing:
+        raise FileExistsError(
+            f"{vault_path} already contains {existing[0].name} — refusing to overwrite "
+            f"an existing vault. Delete the directory first to re-init."
+        )
     vault_path.mkdir(parents=True, exist_ok=True)
-    (vault_path / "transcripts").mkdir(exist_ok=True)
+    for d in VAULT_DIRS:
+        (vault_path / d).mkdir(exist_ok=True)
 
     config = {
         "project_name": project_name,
@@ -50,48 +36,57 @@ def init_vault(vault_path: Path, project_name: str = "My Project", owner: str = 
         "llm_timeout_seconds": 120,
     }
     (vault_path / "project-config.yaml").write_text(yaml.dump(config, default_flow_style=False))
-
-    for fname in ("initiatives.json", "actions.json", "meetings.json",
-                  "decisions.json", "hypotheses.json", "facts.json"):
-        (vault_path / fname).write_text("[]")
-
-    _ROSTER_TEMPLATE = """\
-# roster.yaml — people involved in this project
-# Used by ingest to canonicalize owner names from transcripts.
-#
-# people:
-#   - name: Jane Smith
-#     aliases: [Jane, J. Smith]
-#     role: Program Manager
-#   - name: Bob Jones
-#     aliases: [Bob]
-#     role: ELT
-
-people: []
-"""
-    (vault_path / "roster.yaml").write_text(_ROSTER_TEMPLATE)
+    shutil.copy2(Path(__file__).parent / "templates" / "SCHEMA.md", vault_path / "SCHEMA.md")
 
     from pmao.excel import create_workbook
     create_workbook(vault_path / "workbook.xlsx", [])
 
 
+def _split_body(body: str) -> dict:
+    headings = {h: key for key, h in _SECTIONS}
+    out, key = {}, None
+    for line in body.split("\n"):
+        if line in headings and headings[line] not in out:
+            key = headings[line]
+            out[key] = []
+        elif key:
+            out[key].append(line)
+    return {k: "\n".join(v).strip("\n") or None for k, v in out.items()}
+
+
+def _join_body(d: dict) -> str:
+    return "\n\n".join(f"{h}\n{d[key]}" for key, h in _SECTIONS if d.get(key))
+
+
 def load_initiatives(vault_path: Path) -> List[Initiative]:
-    data = json.loads((vault_path / "initiatives.json").read_text())
-    return [Initiative.from_dict(d) for d in data]
+    return [Initiative.from_dict({**{k: v for k, v in i.items() if k not in ("type", "body", "_file")},
+                                  **_split_body(i.get("body", ""))})
+            for i in read_items(vault_path, "projects")]
 
 
 def save_initiatives(vault_path: Path, initiatives: List[Initiative]) -> None:
-    target = vault_path / "initiatives.json"
-    if target.exists():
-        shutil.copy2(target, vault_path / "initiatives.json.bak")
-    data = [i.to_dict() for i in initiatives]
-    tmp = target.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data, indent=2, default=str))
-    tmp.replace(target)
-    _cleanup_dead_files(vault_path)
+    files = {i["id"]: i["_file"] for i in read_items(vault_path, "projects") if "id" in i}
+    for init in initiatives:
+        d = init.to_dict()
+        item = {"type": "project", **{k: v for k, v in d.items() if k not in _SECTION_FIELDS},
+                "body": _join_body(d)}
+        if init.id in files:
+            item["_file"] = files[init.id]
+        write_item(vault_path, "projects", item, init.name)
+
+
+def load_items(vault_path: Path, folder: str, type: str = None) -> list:
+    return [i for i in read_items(vault_path, folder) if type is None or i.get("type") == type]
+
+
+def save_items(vault_path: Path, folder: str, items: List[dict], title_key: str) -> None:
+    for item in items:
+        write_item(vault_path, folder, item, str(item.get(title_key) or "item"))
 
 
 def load_list(vault_path: Path, filename: str) -> list:
+    # Temporary shim until Task 4 moves ingest onto load_items.
+    import json
     path = vault_path / filename
     return json.loads(path.read_text()) if path.exists() else []
 
@@ -101,11 +96,11 @@ def refresh_workbook(vault_path: Path) -> None:
     create_workbook(
         vault_path / "workbook.xlsx",
         load_initiatives(vault_path),
-        actions=load_list(vault_path, "actions.json"),
-        decisions=load_list(vault_path, "decisions.json"),
-        meetings=load_list(vault_path, "meetings.json"),
-        hypotheses=load_list(vault_path, "hypotheses.json"),
-        facts=load_list(vault_path, "facts.json"),
+        actions=load_items(vault_path, "tasks"),
+        decisions=load_items(vault_path, "decisions"),
+        meetings=load_items(vault_path, "meetings"),
+        hypotheses=load_items(vault_path, "notes", "hypothesis"),
+        facts=load_items(vault_path, "notes", "fact"),
     )
 
 

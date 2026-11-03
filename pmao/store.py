@@ -16,7 +16,7 @@ BODY_FIELD = {
     "note": "text",
     "inbox": "context",
     "person": None,
-    "project": None,
+    "project": "body",
 }
 
 

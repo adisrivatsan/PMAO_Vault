@@ -20,7 +20,7 @@ def test_skills_ship_inside_the_pmao_package():
 
 
 def test_templates_ship_inside_the_pmao_package():
-    for name in ["initiative-template.csv", "project-config.yaml"]:
+    for name in ["initiative-template.csv", "project-config.yaml", "SCHEMA.md"]:
         template_file = PKG_DIR / "templates" / name
         assert template_file.is_file(), f"{template_file} missing from the pmao package"
 

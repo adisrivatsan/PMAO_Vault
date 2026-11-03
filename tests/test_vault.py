@@ -1,11 +1,11 @@
-import json
 import tempfile
 import yaml
 from datetime import date
 from pathlib import Path
 
 from pmao.models import Initiative
-from pmao.vault import init_vault, load_initiatives, save_initiatives, load_list, VAULT_FILES
+from pmao.store import write_item
+from pmao.vault import init_vault, load_initiatives, save_initiatives, load_items, VAULT_DIRS
 
 
 def _make_initiative(id_="init-001", name="Customer Data Platform", **kwargs):
@@ -14,28 +14,15 @@ def _make_initiative(id_="init-001", name="Customer Data Platform", **kwargs):
     return Initiative(id=id_, name=name, **defaults)
 
 
-def test_vault_files_list_excludes_dead_files():
-    assert "signals.json" not in VAULT_FILES
-    assert "questions.json" not in VAULT_FILES
-
-
-def test_init_vault_creates_expected_files():
+def test_init_vault_creates_folders_and_schema():
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp)
         init_vault(vault)
-        for fname in VAULT_FILES:
-            assert (vault / fname).exists(), f"Missing {fname}"
+        for d in VAULT_DIRS:
+            assert (vault / d).is_dir(), f"Missing {d}"
+        assert (vault / "SCHEMA.md").exists()
         assert (vault / "workbook.xlsx").exists()
-        assert (vault / "transcripts").is_dir()
-
-
-def test_init_vault_does_not_create_dead_files():
-    with tempfile.TemporaryDirectory() as tmp:
-        vault = Path(tmp)
-        init_vault(vault)
-        assert not (vault / "staging").exists()
-        assert not (vault / "signals.json").exists()
-        assert not (vault / "questions.json").exists()
+        assert list(vault.glob("*.json")) == []
 
 
 def test_init_vault_writes_config():
@@ -45,13 +32,6 @@ def test_init_vault_writes_config():
         cfg = yaml.safe_load((vault / "project-config.yaml").read_text())
         assert cfg["project_name"] == "Acme LRP"
         assert cfg["owner"] == "J. Smith"
-
-
-def test_init_vault_creates_empty_initiatives():
-    with tempfile.TemporaryDirectory() as tmp:
-        vault = Path(tmp)
-        init_vault(vault)
-        assert json.loads((vault / "initiatives.json").read_text()) == []
 
 
 def test_save_and_load_round_trip():
@@ -65,74 +45,47 @@ def test_save_and_load_round_trip():
         assert loaded[0].name == "Customer Data Platform"
 
 
-def test_save_creates_backup():
+def test_project_round_trip_multiline():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        init = _make_initiative(next_steps="- a\n- b", notes="## not a heading\nx",
+                                current_state="Going: well", last_touch_comment="[email] done")
+        save_initiatives(vault, [init])
+        assert load_initiatives(vault) == [init]
+
+
+def test_project_file_is_readable_markdown():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        save_initiatives(vault, [_make_initiative(current_state="Going well")])
+        text = (vault / "projects" / "customer-data-platform.md").read_text()
+        assert text.startswith("---")
+        assert "type: project" in text
+        assert "## Current state" in text
+        assert "## Next steps" not in text
+
+
+def test_save_initiatives_reuses_file_for_same_id():
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp)
         init_vault(vault)
         save_initiatives(vault, [_make_initiative()])
-        save_initiatives(vault, [_make_initiative("init-002", "Second")])
-        assert (vault / "initiatives.json.bak").exists()
+        save_initiatives(vault, [_make_initiative(name="Renamed")])
+        files = list((vault / "projects").glob("*.md"))
+        assert len(files) == 1
+        assert load_initiatives(vault)[0].name == "Renamed"
 
 
-def test_save_writes_slim_schema():
+def test_load_items_filters_by_type():
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp)
         init_vault(vault)
-        save_initiatives(vault, [_make_initiative(owner="Alex")])
-        data = json.loads((vault / "initiatives.json").read_text())
-        assert data[0]["owner"] == "Alex"
-        assert "coordination_owner" not in data[0]
-        assert "created" not in data[0]
-
-
-def test_save_removes_dead_files():
-    with tempfile.TemporaryDirectory() as tmp:
-        vault = Path(tmp)
-        init_vault(vault)
-        # Simulate old vault artifacts
-        (vault / "signals.json").write_text("[]")
-        (vault / "questions.json").write_text("[]")
-        staging = vault / "staging"
-        staging.mkdir()
-        (staging / "x.json").write_text("{}")
-
-        save_initiatives(vault, [_make_initiative()])
-
-        assert not (vault / "signals.json").exists()
-        assert not (vault / "questions.json").exists()
-        assert not staging.exists()
-
-
-def test_migration_old_schema_loads_and_writes_slim():
-    with tempfile.TemporaryDirectory() as tmp:
-        vault = Path(tmp)
-        init_vault(vault)
-        old_record = [{
-            "id": "init-001", "name": "Alpha",
-            "status": "in_progress",
-            "created": "2026-01-01",
-            "last_touched": "2026-06-01",
-            "coordination_owner": "Jane Smith",
-            "responsible_owner": "Sam Lee",
-            "coordination_next_steps": "- Book review",
-            "outstanding_questions": "Budget?",
-            "last_touch_comment": "[email] done",
-            "last_touch_timestamp": "2026-06-09",
-        }]
-        (vault / "initiatives.json").write_text(json.dumps(old_record))
-
-        loaded = load_initiatives(vault)
-        assert loaded[0].owner == "Jane Smith"
-        assert loaded[0].next_steps == "- Book review"
-        assert loaded[0].last_touched == date(2026, 6, 9)
-        assert "Open questions: Budget?" in loaded[0].notes
-
-        # Write back → slim schema
-        save_initiatives(vault, loaded)
-        data = json.loads((vault / "initiatives.json").read_text())
-        assert "coordination_owner" not in data[0]
-        assert "created" not in data[0]
-        assert data[0]["owner"] == "Jane Smith"
+        write_item(vault, "notes", {"type": "hypothesis", "id": "h1"}, "H")
+        write_item(vault, "notes", {"type": "fact", "id": "f1"}, "F")
+        assert len(load_items(vault, "notes")) == 2
+        assert [i["id"] for i in load_items(vault, "notes", "fact")] == ["f1"]
 
 
 def test_no_lrp_in_config():
@@ -141,18 +94,6 @@ def test_no_lrp_in_config():
         init_vault(vault)
         config_text = (vault / "project-config.yaml").read_text()
         assert "lrp" not in config_text.lower()
-
-
-def test_load_list_missing_file_returns_empty():
-    with tempfile.TemporaryDirectory() as tmp:
-        assert load_list(Path(tmp), "facts.json") == []
-
-
-def test_load_list_reads_json_array():
-    with tempfile.TemporaryDirectory() as tmp:
-        vault = Path(tmp)
-        (vault / "facts.json").write_text(json.dumps([{"id": "fact-1"}]))
-        assert load_list(vault, "facts.json") == [{"id": "fact-1"}]
 
 
 def test_seed_from_csv_owner_column():
